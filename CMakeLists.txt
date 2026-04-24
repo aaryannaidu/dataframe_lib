@@ -14,6 +14,8 @@ set(LIB_SOURCES
     src/IO.cpp
     src/EagerDataFrame.cpp
     src/DAGNode.cpp
+    src/QueryOptimizer.cpp
+    src/LazyDataFrame.cpp
 )
 
 add_library(dataframelib ${LIB_SOURCES})
@@ -29,3 +31,6 @@ target_link_libraries(test_expressions PRIVATE dataframelib)
 
 add_executable(test_eager tests/test_eager.cpp)
 target_link_libraries(test_eager PRIVATE dataframelib)
+
+add_executable(test_lazy tests/test_lazy.cpp)
+target_link_libraries(test_lazy PRIVATE dataframelib)

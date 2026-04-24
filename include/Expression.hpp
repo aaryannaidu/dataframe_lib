@@ -250,4 +250,4 @@ Expr lit(T value) {
 // Throws std::runtime_error on type mismatches or missing columns.
 arrow::Datum evaluate(const Expr& expr, const std::shared_ptr<arrow::Table>& table);
 
-} // namespace dataframelib
+} 
