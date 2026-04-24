@@ -1,0 +1,2 @@
+/usr/bin/ar qc libdataframelib.a CMakeFiles/dataframelib.dir/src/Expression.cpp.o
+/usr/bin/ranlib libdataframelib.a

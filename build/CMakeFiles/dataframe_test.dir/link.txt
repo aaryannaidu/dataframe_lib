@@ -1,0 +1,1 @@
+/usr/bin/c++ -g -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/dataframe_test.dir/main.cpp.o -o dataframe_test  libdataframelib.a /opt/homebrew/lib/libparquet.2300.1.0.dylib /opt/homebrew/lib/libarrow.2300.1.0.dylib
