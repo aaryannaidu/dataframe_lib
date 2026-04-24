@@ -1,11 +1,20 @@
 #include "Expression.hpp"
 
 #include <arrow/compute/api.h>
+#include <arrow/compute/initialize.h>
 #include <arrow/scalar.h>
 #include <arrow/type_traits.h>
 
 #include <sstream>
 #include <stdexcept>
+
+// Ensure Arrow compute kernels are registered on first use.
+namespace {
+    struct ArrowComputeInit {
+        ArrowComputeInit() { arrow::compute::Initialize(); }
+    };
+    static ArrowComputeInit arrow_compute_init_;
+}
 
 namespace dataframelib {
 
