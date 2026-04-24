@@ -1,0 +1,10 @@
+# Build directories
+build/
+
+# IDE / Editor folders
+.claude/
+.vscode/
+.idea/
+
+# OS specific files
+.DS_Store
