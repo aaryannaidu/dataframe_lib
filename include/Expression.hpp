@@ -100,6 +100,15 @@ class Expr {
 public:
     explicit Expr(std::shared_ptr<ExprNode> node) : node_(std::move(node)) {}
 
+    // Implicit construction from numeric literals so expressions like col("age") > 30 compile.
+    // String constructors are explicit to avoid ambiguity in select({"a","b"}) vs select({col,col}).
+    Expr(int v)                : node_(std::make_shared<LitNode>(LitValue{int32_t(v)})) {}
+    Expr(int64_t v)            : node_(std::make_shared<LitNode>(LitValue{v})) {}
+    Expr(double v)             : node_(std::make_shared<LitNode>(LitValue{v})) {}
+    Expr(float v)              : node_(std::make_shared<LitNode>(LitValue{v})) {}
+    explicit Expr(const std::string& v) : node_(std::make_shared<LitNode>(LitValue{v})) {}
+    explicit Expr(const char* v)        : node_(std::make_shared<LitNode>(LitValue{std::string(v)})) {}
+
     // Access the underlying AST node (used by the evaluator and optimizer).
     const std::shared_ptr<ExprNode>& node() const { return node_; }
 
@@ -191,6 +200,12 @@ template <typename T>
 Expr lit(T value) {
     return Expr(std::make_shared<LitNode>(LitValue{std::move(value)}));
 }
+
+// String-literal comparisons: col("dept") == "HR" or col("dept") != "HR"
+inline Expr operator==(Expr l, const char* r)        { return detail::bop(l, lit(std::string(r)), BinOp::EQ);  }
+inline Expr operator!=(Expr l, const char* r)        { return detail::bop(l, lit(std::string(r)), BinOp::NEQ); }
+inline Expr operator==(Expr l, const std::string& r) { return detail::bop(l, lit(r), BinOp::EQ);  }
+inline Expr operator!=(Expr l, const std::string& r) { return detail::bop(l, lit(r), BinOp::NEQ); }
 
 // Evaluates an expression against an Arrow Table; returns a Datum (scalar or array).
 arrow::Datum evaluate(const Expr& expr, const std::shared_ptr<arrow::Table>& table);

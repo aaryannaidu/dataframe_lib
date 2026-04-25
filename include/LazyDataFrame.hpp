@@ -6,6 +6,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace dataframelib {
@@ -21,6 +22,11 @@ public:
     // Select by column names.
     LazyDataFrame select(const std::vector<std::string>& columns) const;
 
+    // Braced-init-list overload: preferred over vector<Expr> for {"a","b"} literals.
+    LazyDataFrame select(std::initializer_list<std::string> columns) const {
+        return select(std::vector<std::string>(columns));
+    }
+
     // Select by expressions; non-col expressions require .alias().
     LazyDataFrame select(const std::vector<Expr>& exprs) const;
 
@@ -32,12 +38,19 @@ public:
     // Creates an AggregateNode; the current node must be a GroupByNode.
     LazyDataFrame aggregate(const std::map<std::string, Expr>& agg_map) const;
 
+    // String-based aggregation: specs are {col, "sum"|"mean"|"count"|"min"|"max"}.
+    LazyDataFrame aggregate(const std::vector<std::pair<std::string, std::string>>& specs) const;
+
     LazyDataFrame join(const LazyDataFrame& other,
                        const std::vector<std::string>& on,
                        const std::string& how = "inner") const;
 
     LazyDataFrame sort(const std::vector<std::string>& columns,
                        const std::vector<bool>& ascending) const;
+
+    LazyDataFrame sort(const std::vector<std::string>& columns, bool ascending) const {
+        return sort(columns, std::vector<bool>(columns.size(), ascending));
+    }
 
     LazyDataFrame head(int64_t n) const;
 

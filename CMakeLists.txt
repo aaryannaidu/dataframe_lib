@@ -26,14 +26,14 @@ target_link_libraries(dataframelib PUBLIC Arrow::arrow_shared ArrowCompute::arro
 add_executable(dataframe_test main.cpp)
 target_link_libraries(dataframe_test PRIVATE dataframelib)
 
-add_executable(test_expressions tests/test_expressions.cpp)
-target_link_libraries(test_expressions PRIVATE dataframelib)
+add_executable(dfl_test_expressions tests/test_expressions.cpp)
+target_link_libraries(dfl_test_expressions PRIVATE dataframelib)
 
-add_executable(test_eager tests/test_eager.cpp)
-target_link_libraries(test_eager PRIVATE dataframelib)
+add_executable(dfl_test_eager tests/test_eager.cpp)
+target_link_libraries(dfl_test_eager PRIVATE dataframelib)
 
-add_executable(test_lazy tests/test_lazy.cpp)
-target_link_libraries(test_lazy PRIVATE dataframelib)
+add_executable(dfl_test_lazy tests/test_lazy.cpp)
+target_link_libraries(dfl_test_lazy PRIVATE dataframelib)
 
-add_executable(test_optimizer tests/test_optimizer.cpp)
-target_link_libraries(test_optimizer PRIVATE dataframelib)
+add_executable(dfl_test_optimizer tests/test_optimizer.cpp)
+target_link_libraries(dfl_test_optimizer PRIVATE dataframelib)

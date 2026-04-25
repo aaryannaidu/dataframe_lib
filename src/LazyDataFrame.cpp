@@ -287,6 +287,26 @@ LazyDataFrame LazyDataFrame::aggregate(const std::map<std::string, Expr>& agg_ma
     return LazyDataFrame(std::make_shared<AggregateNode>(node_, agg_map));
 }
 
+LazyDataFrame LazyDataFrame::aggregate(
+    const std::vector<std::pair<std::string, std::string>>& specs) const {
+    static const std::pair<const char*, AggType> table[] = {
+        {"sum", AggType::SUM}, {"mean", AggType::MEAN}, {"count", AggType::COUNT},
+        {"min", AggType::MIN}, {"max", AggType::MAX},
+    };
+    std::map<std::string, Expr> m;
+    for (const auto& s : specs) {
+        AggType at = AggType::SUM;
+        bool found = false;
+        for (const auto& e : table) {
+            if (s.second == e.first) { at = e.second; found = true; break; }
+        }
+        if (!found) throw std::runtime_error("aggregate: unknown function '" + s.second + "'");
+        m.emplace(s.first + "_" + s.second, Expr(std::make_shared<AggNode>(
+            std::make_shared<ColNode>(s.first), at)));
+    }
+    return aggregate(m);
+}
+
 LazyDataFrame LazyDataFrame::join(const LazyDataFrame& other,
                                    const std::vector<std::string>& on,
                                    const std::string& how) const {
@@ -322,7 +342,7 @@ void LazyDataFrame::explain(const std::string& path) const {
     out << "}\n";
     out.close();
 
-    std::string cmd = "dot -Tpng " + dot_path + " -o " + path;
+    std::string cmd = "dot -Tpng \"" + dot_path + "\" -o \"" + path + "\"";
     int ret = std::system(cmd.c_str());
     if (ret != 0) {
         throw std::runtime_error("explain: dot command failed. Is Graphviz installed?");

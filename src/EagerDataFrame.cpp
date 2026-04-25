@@ -100,13 +100,17 @@ std::vector<int64_t> find_group_starts(
 }
 
 // Build a string key from the join columns of a single row (used for hash join).
+// Uses a length-prefixed format so values containing the separator cannot collide.
 std::string row_key(const std::shared_ptr<arrow::Table>& table,
                      int64_t row,
                      const std::vector<std::string>& cols) {
     std::string key;
     for (const auto& c : cols) {
-        key += scalar_at(table->GetColumnByName(c), row)->ToString();
+        std::string s = scalar_at(table->GetColumnByName(c), row)->ToString();
+        // encode as <length>\0<bytes> so embedded separators don't collide
+        key += std::to_string(s.size());
         key += '\0';
+        key += s;
     }
     return key;
 }
@@ -253,11 +257,34 @@ EagerDataFrame EagerDataFrame::join(const EagerDataFrame& other,
     std::vector<std::shared_ptr<arrow::Field>> fields;
     std::vector<std::shared_ptr<arrow::Array>> arrays;
 
-    for (int c = 0; c < table_->num_columns(); ++c) {
-        fields.push_back(table_->schema()->field(c));
-        arrays.push_back(take_with_nulls(table_->column(c), left_take));
-    }
     std::set<std::string> key_set(on.begin(), on.end());
+    for (int c = 0; c < table_->num_columns(); ++c) {
+        auto f = table_->schema()->field(c);
+        fields.push_back(f);
+        // For outer joins, key columns for right-only rows should use the right value
+        // rather than null. Coalesce left key with right key when left_take == -1.
+        if (key_set.count(f->name()) && (how == "outer" || how == "right")) {
+            auto right_col = other.table()->GetColumnByName(f->name());
+            auto left_col = table_->column(c);
+            std::unique_ptr<arrow::ArrayBuilder> builder;
+            auto st = arrow::MakeBuilder(arrow::default_memory_pool(), left_col->type(), &builder);
+            if (!st.ok()) throw std::runtime_error("join(outer key): " + st.message());
+            for (size_t i = 0; i < left_take.size(); ++i) {
+                if (left_take[i] >= 0) {
+                    st = builder->AppendScalar(*scalar_at(left_col, left_take[i]));
+                } else {
+                    st = builder->AppendScalar(*scalar_at(right_col, right_take[i]));
+                }
+                if (!st.ok()) throw std::runtime_error("join(outer key): " + st.message());
+            }
+            std::shared_ptr<arrow::Array> arr;
+            st = builder->Finish(&arr);
+            if (!st.ok()) throw std::runtime_error("join(outer key): " + st.message());
+            arrays.push_back(arr);
+        } else {
+            arrays.push_back(take_with_nulls(table_->column(c), left_take));
+        }
+    }
     for (int c = 0; c < other.table()->num_columns(); ++c) {
         auto f = other.table()->schema()->field(c);
         if (key_set.count(f->name())) continue;
@@ -338,9 +365,49 @@ EagerDataFrame GroupedDataFrame::aggregate(
 
 EagerDataFrame read_csv(const std::string& path)    { return EagerDataFrame(io::read_csv(path)); }
 EagerDataFrame read_parquet(const std::string& path) { return EagerDataFrame(io::read_parquet(path)); }
+
 EagerDataFrame from_columns(
-    const std::map<std::string, std::shared_ptr<arrow::Array>>& columns) {
-    return EagerDataFrame(io::from_columns(columns));
+    const std::vector<std::pair<std::string, std::shared_ptr<arrow::Array>>>& columns) {
+    if (columns.empty())
+        throw std::runtime_error("from_columns: column list is empty");
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    std::vector<std::shared_ptr<arrow::Array>> arrays;
+    int64_t expected_rows = columns[0].second->length();
+    for (const auto& p : columns) {
+        if (p.second->length() != expected_rows)
+            throw std::runtime_error("from_columns: column \"" + p.first + "\" has " +
+                                     std::to_string(p.second->length()) + " rows, expected " +
+                                     std::to_string(expected_rows));
+        fields.push_back(arrow::field(p.first, p.second->type()));
+        arrays.push_back(p.second);
+    }
+    return EagerDataFrame(arrow::Table::Make(arrow::schema(fields), arrays));
+}
+
+namespace {
+    static const std::pair<const char*, AggType> kAggTable[] = {
+        {"sum",   AggType::SUM},
+        {"mean",  AggType::MEAN},
+        {"count", AggType::COUNT},
+        {"min",   AggType::MIN},
+        {"max",   AggType::MAX},
+    };
+}
+
+EagerDataFrame GroupedDataFrame::aggregate(
+    const std::vector<std::pair<std::string, std::string>>& specs) const {
+    std::map<std::string, Expr> m;
+    for (const auto& s : specs) {
+        AggType at = AggType::SUM;
+        bool found = false;
+        for (const auto& e : kAggTable) {
+            if (s.second == e.first) { at = e.second; found = true; break; }
+        }
+        if (!found) throw std::runtime_error("aggregate: unknown function '" + s.second + "'");
+        m.emplace(s.first + "_" + s.second, Expr(std::make_shared<AggNode>(
+            std::make_shared<ColNode>(s.first), at)));
+    }
+    return aggregate(m);
 }
 
 }
