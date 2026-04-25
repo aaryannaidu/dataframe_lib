@@ -11,7 +11,6 @@ namespace dataframelib {
 
 namespace {
 
-// Recursively execute a DAG node and return the materialised EagerDataFrame.
     std::string expr_to_string(const std::shared_ptr<ExprNode>& node) {
         if (!node) return "null";
         switch (node->type()) {
@@ -30,23 +29,12 @@ namespace {
             case ExprType::ALIAS:
                 return expr_to_string(static_cast<const AliasNode*>(node.get())->input) + " AS " + static_cast<const AliasNode*>(node.get())->name;
             case ExprType::BINOP: {
+                static const char* ops[] = {
+                    "+", "-", "*", "/", "%",
+                    "==", "!=", "<", "<=", ">", ">=", "AND", "OR"
+                };
                 auto n = static_cast<const BinaryOpNode*>(node.get());
-                std::string op = "?";
-                switch (n->op) {
-                    case BinOp::ADD: op = "+"; break;
-                    case BinOp::SUB: op = "-"; break;
-                    case BinOp::MUL: op = "*"; break;
-                    case BinOp::DIV: op = "/"; break;
-                    case BinOp::MOD: op = "%"; break;
-                    case BinOp::EQ: op = "=="; break;
-                    case BinOp::NEQ: op = "!="; break;
-                    case BinOp::LT: op = "<"; break;
-                    case BinOp::LTE: op = "<="; break;
-                    case BinOp::GT: op = ">"; break;
-                    case BinOp::GTE: op = ">="; break;
-                    case BinOp::AND: op = "AND"; break;
-                    case BinOp::OR: op = "OR"; break;
-                }
+                std::string op = ops[static_cast<int>(n->op)];
                 return "(" + expr_to_string(n->left) + " " + op + " " + expr_to_string(n->right) + ")";
             }
             case ExprType::UNARYOP: {
@@ -59,29 +47,19 @@ namespace {
                 return "unary";
             }
             case ExprType::AGG: {
+                static const char* aggs[] = {"SUM", "MEAN", "COUNT", "MIN", "MAX"};
                 auto n = static_cast<const AggNode*>(node.get());
-                std::string agg = "?";
-                switch (n->agg) {
-                    case AggType::SUM: agg = "SUM"; break;
-                    case AggType::MEAN: agg = "MEAN"; break;
-                    case AggType::COUNT: agg = "COUNT"; break;
-                    case AggType::MIN: agg = "MIN"; break;
-                    case AggType::MAX: agg = "MAX"; break;
-                }
-                return agg + "(" + expr_to_string(n->input) + ")";
+                return std::string(aggs[static_cast<int>(n->agg)]) +
+                       "(" + expr_to_string(n->input) + ")";
             }
             case ExprType::STRFUNC: {
+                static const char* fns[] = {
+                    "LENGTH", "CONTAINS", "STARTS_WITH", "ENDS_WITH", "TO_LOWER", "TO_UPPER"
+                };
                 auto n = static_cast<const StrFuncNode*>(node.get());
-                std::string f = "?";
-                switch (n->func) {
-                    case StrFunc::LENGTH: f = "LENGTH"; break;
-                    case StrFunc::CONTAINS: f = "CONTAINS"; break;
-                    case StrFunc::STARTS_WITH: f = "STARTS_WITH"; break;
-                    case StrFunc::ENDS_WITH: f = "ENDS_WITH"; break;
-                    case StrFunc::TO_LOWER: f = "TO_LOWER"; break;
-                    case StrFunc::TO_UPPER: f = "TO_UPPER"; break;
-                }
-                return f + "(" + expr_to_string(n->input) + (n->arg.empty() ? "" : ", '" + n->arg + "'") + ")";
+                std::string args = n->arg.empty() ? "" : ", '" + n->arg + "'";
+                return std::string(fns[static_cast<int>(n->func)]) +
+                       "(" + expr_to_string(n->input) + args + ")";
             }
             default: return "?";
         }
@@ -91,19 +69,13 @@ namespace {
         return expr_to_string(expr.node());
     }
 
-    std::string to_string(NodeType type) {
-        switch (type) {
-            case NodeType::SCAN: return "SCAN";
-            case NodeType::FILTER: return "FILTER";
-            case NodeType::SELECT: return "SELECT";
-            case NodeType::WITH_COLUMN: return "WITH_COLUMN";
-            case NodeType::GROUP_BY: return "GROUP_BY";
-            case NodeType::AGGREGATE: return "AGGREGATE";
-            case NodeType::JOIN: return "JOIN";
-            case NodeType::SORT: return "SORT";
-            case NodeType::HEAD: return "HEAD";
-            default: return "UNKNOWN";
-        }
+    std::string to_string(NodeType t) {
+        static const char* names[] = {
+            "SCAN", "FILTER", "SELECT", "WITH_COLUMN",
+            "GROUP_BY", "AGGREGATE", "JOIN", "SORT", "HEAD"
+        };
+        int i = static_cast<int>(t);
+        return (i >= 0 && i < 9) ? names[i] : "UNKNOWN";
     }
 
     std::string get_node_label(const std::shared_ptr<DAGNode>& node) {

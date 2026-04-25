@@ -9,8 +9,6 @@
 
 namespace dataframelib {
 
-// ── Operator enums ─────────────────────────────────────────────────────────
-
 enum class ExprType {
     COL, LIT, ALIAS, BINOP, UNARYOP, AGG, STRFUNC
 };
@@ -35,15 +33,9 @@ enum class StrFunc {
     LENGTH, CONTAINS, STARTS_WITH, ENDS_WITH, TO_LOWER, TO_UPPER
 };
 
-// ── Literal value type ─────────────────────────────────────────────────────
-
 using LitValue = std::variant<int32_t, int64_t, float, double, bool, std::string>;
 
-// ── Internal AST node hierarchy ────────────────────────────────────────────
-//
-// ExprNode and its subclasses are internal implementation detail.
-// Users only interact with the Expr value type below.
-
+// ExprNode and its subclasses are the internal AST; users only interact with Expr.
 struct ExprNode {
     virtual ~ExprNode() = default;
     virtual ExprType type() const = 0;
@@ -103,12 +95,7 @@ struct StrFuncNode : ExprNode {
     ExprType type() const override { return ExprType::STRFUNC; }
 };
 
-// ── Expr: user-facing value type ───────────────────────────────────────────
-//
-// Copyable, movable value wrapper around a shared_ptr<ExprNode>.
-// Supports dot-chaining: col("age").abs().alias("abs_age")
-// All operators are overloaded to return new Expr values.
-
+// Value wrapper around shared_ptr<ExprNode>; supports dot-chaining like col("x").abs().alias("y").
 class Expr {
 public:
     explicit Expr(std::shared_ptr<ExprNode> node) : node_(std::move(node)) {}
@@ -118,17 +105,14 @@ public:
 
     ExprType type() const { return node_->type(); }
 
-    // ── Alias ──────────────────────────────────────────────────────────────
     Expr alias(const std::string& name) const {
         return Expr(std::make_shared<AliasNode>(node_, name));
     }
 
-    // ── Unary arithmetic ───────────────────────────────────────────────────
     Expr abs() const {
         return Expr(std::make_shared<UnaryOpNode>(node_, UnaryOp::ABS));
     }
 
-    // ── Null checks ────────────────────────────────────────────────────────
     Expr is_null() const {
         return Expr(std::make_shared<UnaryOpNode>(node_, UnaryOp::IS_NULL));
     }
@@ -136,7 +120,6 @@ public:
         return Expr(std::make_shared<UnaryOpNode>(node_, UnaryOp::IS_NOT_NULL));
     }
 
-    // ── String functions ───────────────────────────────────────────────────
     Expr length() const {
         return Expr(std::make_shared<StrFuncNode>(node_, StrFunc::LENGTH));
     }
@@ -156,7 +139,6 @@ public:
         return Expr(std::make_shared<StrFuncNode>(node_, StrFunc::TO_UPPER));
     }
 
-    // ── Aggregations ───────────────────────────────────────────────────────
     Expr sum() const {
         return Expr(std::make_shared<AggNode>(node_, AggType::SUM));
     }
@@ -177,77 +159,40 @@ private:
     std::shared_ptr<ExprNode> node_;
 };
 
-// ── Operator overloads ─────────────────────────────────────────────────────
-
-// Arithmetic
-inline Expr operator+(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::ADD));
+// Helper used by operator overloads below.
+namespace detail {
+inline Expr bop(Expr l, Expr r, BinOp op) {
+    return Expr(std::make_shared<BinaryOpNode>(l.node(), r.node(), op));
 }
-inline Expr operator-(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::SUB));
-}
-inline Expr operator*(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::MUL));
-}
-inline Expr operator/(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::DIV));
-}
-inline Expr operator%(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::MOD));
 }
 
-// Comparison
-inline Expr operator==(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::EQ));
-}
-inline Expr operator!=(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::NEQ));
-}
-inline Expr operator<(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::LT));
-}
-inline Expr operator<=(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::LTE));
-}
-inline Expr operator>(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::GT));
-}
-inline Expr operator>=(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::GTE));
+inline Expr operator+(Expr l, Expr r)  { return detail::bop(l, r, BinOp::ADD); }
+inline Expr operator-(Expr l, Expr r)  { return detail::bop(l, r, BinOp::SUB); }
+inline Expr operator*(Expr l, Expr r)  { return detail::bop(l, r, BinOp::MUL); }
+inline Expr operator/(Expr l, Expr r)  { return detail::bop(l, r, BinOp::DIV); }
+inline Expr operator%(Expr l, Expr r)  { return detail::bop(l, r, BinOp::MOD); }
+inline Expr operator==(Expr l, Expr r) { return detail::bop(l, r, BinOp::EQ); }
+inline Expr operator!=(Expr l, Expr r) { return detail::bop(l, r, BinOp::NEQ); }
+inline Expr operator< (Expr l, Expr r) { return detail::bop(l, r, BinOp::LT); }
+inline Expr operator<=(Expr l, Expr r) { return detail::bop(l, r, BinOp::LTE); }
+inline Expr operator> (Expr l, Expr r) { return detail::bop(l, r, BinOp::GT); }
+inline Expr operator>=(Expr l, Expr r) { return detail::bop(l, r, BinOp::GTE); }
+inline Expr operator& (Expr l, Expr r) { return detail::bop(l, r, BinOp::AND); }
+inline Expr operator| (Expr l, Expr r) { return detail::bop(l, r, BinOp::OR); }
+inline Expr operator~(Expr e) {
+    return Expr(std::make_shared<UnaryOpNode>(e.node(), UnaryOp::NOT));
 }
 
-// Boolean
-inline Expr operator&(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::AND));
-}
-inline Expr operator|(Expr lhs, Expr rhs) {
-    return Expr(std::make_shared<BinaryOpNode>(lhs.node(), rhs.node(), BinOp::OR));
-}
-inline Expr operator~(Expr operand) {
-    return Expr(std::make_shared<UnaryOpNode>(operand.node(), UnaryOp::NOT));
-}
-
-// ── Public API: col() and lit() ────────────────────────────────────────────
-
-/// Create a column reference expression: col("age")
 inline Expr col(const std::string& name) {
     return Expr(std::make_shared<ColNode>(name));
 }
 
-/// Create a literal expression: lit(42), lit(3.14f), lit(true), lit("hello")
-/// T must be one of: int32_t, int64_t, float, double, bool, std::string.
 template <typename T>
 Expr lit(T value) {
     return Expr(std::make_shared<LitNode>(LitValue{std::move(value)}));
 }
 
-// ── Expression evaluator ───────────────────────────────────────────────────
-//
-// Evaluates an expression tree against an Arrow Table.
-// Returns an arrow::Datum which may be a Scalar (aggregation result),
-// Array, or ChunkedArray (element-wise result).
-//
-// Throws std::runtime_error on type mismatches or missing columns.
+// Evaluates an expression against an Arrow Table; returns a Datum (scalar or array).
 arrow::Datum evaluate(const Expr& expr, const std::shared_ptr<arrow::Table>& table);
 
 } 

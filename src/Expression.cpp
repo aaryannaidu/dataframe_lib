@@ -20,7 +20,6 @@ namespace dataframelib {
 
 namespace {
 
-// ── Type helpers ───────────────────────────────────────────────────────────
 
 std::shared_ptr<arrow::DataType> datum_type(const arrow::Datum& d) {
     switch (d.kind()) {
@@ -55,7 +54,6 @@ arrow::Datum cast_to(const arrow::Datum& d, const std::shared_ptr<arrow::DataTyp
     return result.ValueOrDie();
 }
 
-// ── Call a named Arrow compute function, throwing on failure ───────────────
 
 arrow::Datum call(const std::string& func,
                   const std::vector<arrow::Datum>& args,
@@ -68,12 +66,10 @@ arrow::Datum call(const std::string& func,
     return result.ValueOrDie();
 }
 
-// ── Forward declaration ────────────────────────────────────────────────────
 
 arrow::Datum eval_node(const std::shared_ptr<ExprNode>& node,
                        const std::shared_ptr<arrow::Table>& table);
 
-// ── COL ────────────────────────────────────────────────────────────────────
 
 arrow::Datum eval_col(const ColNode& n, const std::shared_ptr<arrow::Table>& table) {
     auto col = table->GetColumnByName(n.name);
@@ -83,7 +79,6 @@ arrow::Datum eval_col(const ColNode& n, const std::shared_ptr<arrow::Table>& tab
     return arrow::Datum(col);
 }
 
-// ── LIT ────────────────────────────────────────────────────────────────────
 
 arrow::Datum eval_lit(const LitNode& n) {
     return std::visit([](auto&& v) -> arrow::Datum {
@@ -91,7 +86,6 @@ arrow::Datum eval_lit(const LitNode& n) {
     }, n.value);
 }
 
-// ── BINOP ──────────────────────────────────────────────────────────────────
 
 arrow::Datum eval_binop(const BinaryOpNode& n, const std::shared_ptr<arrow::Table>& table) {
     auto left  = eval_node(n.left,  table);
@@ -174,7 +168,6 @@ arrow::Datum eval_binop(const BinaryOpNode& n, const std::shared_ptr<arrow::Tabl
     throw std::runtime_error("Unknown binary operator");
 }
 
-// ── UNARYOP ────────────────────────────────────────────────────────────────
 
 arrow::Datum eval_unary(const UnaryOpNode& n, const std::shared_ptr<arrow::Table>& table) {
     auto input = eval_node(n.input, table);
@@ -205,7 +198,6 @@ arrow::Datum eval_unary(const UnaryOpNode& n, const std::shared_ptr<arrow::Table
     throw std::runtime_error("Unknown unary operator");
 }
 
-// ── AGG ────────────────────────────────────────────────────────────────────
 
 arrow::Datum eval_agg(const AggNode& n, const std::shared_ptr<arrow::Table>& table) {
     auto input = eval_node(n.input, table);
@@ -248,7 +240,6 @@ arrow::Datum eval_agg(const AggNode& n, const std::shared_ptr<arrow::Table>& tab
     throw std::runtime_error("Unknown aggregation type");
 }
 
-// ── STRFUNC ────────────────────────────────────────────────────────────────
 
 arrow::Datum eval_strfunc(const StrFuncNode& n, const std::shared_ptr<arrow::Table>& table) {
     auto input = eval_node(n.input, table);
@@ -285,7 +276,6 @@ arrow::Datum eval_strfunc(const StrFuncNode& n, const std::shared_ptr<arrow::Tab
     throw std::runtime_error("Unknown string function");
 }
 
-// ── ALIAS ──────────────────────────────────────────────────────────────────
 // The alias is handled at the DataFrame level (column renaming).
 // The evaluator just evaluates the inner expression transparently.
 
@@ -293,7 +283,6 @@ arrow::Datum eval_alias(const AliasNode& n, const std::shared_ptr<arrow::Table>&
     return eval_node(n.input, table);
 }
 
-// ── Main dispatch ──────────────────────────────────────────────────────────
 
 arrow::Datum eval_node(const std::shared_ptr<ExprNode>& node,
                        const std::shared_ptr<arrow::Table>& table)
@@ -312,7 +301,6 @@ arrow::Datum eval_node(const std::shared_ptr<ExprNode>& node,
 
 } // anonymous namespace
 
-// ── Public entry point ─────────────────────────────────────────────────────
 
 arrow::Datum evaluate(const Expr& expr, const std::shared_ptr<arrow::Table>& table) {
     return eval_node(expr.node(), table);

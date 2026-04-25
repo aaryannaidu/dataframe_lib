@@ -318,11 +318,4 @@ Takes a DAG root node → returns an optimized DAG root node. Implement as a ser
 
 ---
 
-## Priority if running out of time
 
-1. Expression system (everything depends on it)
-2. EagerDataFrame (45% correctness grade)
-3. LazyDataFrame with collect() working
-4. At least 2 optimizer rules (predicate + projection pushdown)
-5. explain() visualization
-6. Remaining optimizer rules

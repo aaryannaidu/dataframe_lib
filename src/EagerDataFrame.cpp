@@ -10,7 +10,6 @@ namespace dataframelib {
 
 namespace {
 
-// ── Row-level scalar helpers ───────────────────────────────────────────────
 
 // Resolve the output column name for a select expression.
 std::string expr_output_name(const Expr& e) {
@@ -114,7 +113,6 @@ std::string row_key(const std::shared_ptr<arrow::Table>& table,
 
 } // anonymous namespace
 
-// ── Constructor / getters ──────────────────────────────────────────────────
 
 EagerDataFrame::EagerDataFrame(std::shared_ptr<arrow::Table> table)
     : table_(std::move(table)) {}
@@ -123,7 +121,6 @@ const std::shared_ptr<arrow::Table>& EagerDataFrame::table() const { return tabl
 int64_t EagerDataFrame::num_rows() const { return table_->num_rows(); }
 int     EagerDataFrame::num_cols() const { return table_->num_columns(); }
 
-// ── Select ─────────────────────────────────────────────────────────────────
 
 EagerDataFrame EagerDataFrame::select(const std::vector<std::string>& columns) const {
     std::vector<int> indices;
@@ -154,7 +151,6 @@ EagerDataFrame EagerDataFrame::select(const std::vector<Expr>& exprs) const {
     return EagerDataFrame(arrow::Table::Make(arrow::schema(fields), arrays));
 }
 
-// ── Head / sort / filter ───────────────────────────────────────────────────
 
 EagerDataFrame EagerDataFrame::head(int64_t n) const {
     return EagerDataFrame(table_->Slice(0, std::min(n, table_->num_rows())));
@@ -185,7 +181,6 @@ EagerDataFrame EagerDataFrame::filter(const Expr& predicate) const {
     return EagerDataFrame(result.ValueOrDie().table());
 }
 
-// ── With column ────────────────────────────────────────────────────────────
 
 EagerDataFrame EagerDataFrame::with_column(const std::string& name, const Expr& expr) const {
     auto col   = to_chunked(evaluate(expr, table_), "with_column(\"" + name + "\")");
@@ -204,13 +199,11 @@ EagerDataFrame EagerDataFrame::with_column(const std::string& name, const Expr& 
     return EagerDataFrame(new_table);
 }
 
-// ── Group by ───────────────────────────────────────────────────────────────
 
 GroupedDataFrame EagerDataFrame::group_by(const std::vector<std::string>& keys) const {
     return GroupedDataFrame(table_, keys);
 }
 
-// ── Join ───────────────────────────────────────────────────────────────────
 
 EagerDataFrame EagerDataFrame::join(const EagerDataFrame& other,
                                      const std::vector<std::string>& on,
@@ -275,12 +268,10 @@ EagerDataFrame EagerDataFrame::join(const EagerDataFrame& other,
     return EagerDataFrame(arrow::Table::Make(arrow::schema(fields), arrays));
 }
 
-// ── I/O wrappers ───────────────────────────────────────────────────────────
 
 void EagerDataFrame::write_csv(const std::string& path) const     { io::write_csv(table_, path); }
 void EagerDataFrame::write_parquet(const std::string& path) const { io::write_parquet(table_, path); }
 
-// ── GroupedDataFrame ───────────────────────────────────────────────────────
 
 GroupedDataFrame::GroupedDataFrame(std::shared_ptr<arrow::Table> table,
                                     std::vector<std::string> keys)
@@ -344,7 +335,6 @@ EagerDataFrame GroupedDataFrame::aggregate(
     return EagerDataFrame(arrow::Table::Make(arrow::schema(fields), arrays));
 }
 
-// ── Top-level free functions ───────────────────────────────────────────────
 
 EagerDataFrame read_csv(const std::string& path)    { return EagerDataFrame(io::read_csv(path)); }
 EagerDataFrame read_parquet(const std::string& path) { return EagerDataFrame(io::read_parquet(path)); }

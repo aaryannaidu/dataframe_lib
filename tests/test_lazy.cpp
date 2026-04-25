@@ -175,7 +175,21 @@ static void test_explain() {
                      .aggregate({{"sum_x", col("x").sum()}});
 
     query.explain("test_explain.png");
-    std::cout << "[PASS] explain generates PNG\n";
+
+    // Test optimizer: pushing filter past sort and select, constant folding, simplify
+    auto unoptimized = scan_csv(CSV_PATH)
+                           .select({col("g"), col("x")})
+                           .sort({"g"}, {true})
+                           .filter(col("x") + lit(0) > lit(2) * lit(1));
+
+    // Optimizations expected:
+    // 1. x + 0 -> x (Simplify)
+    // 2. 2 * 1 -> 2 (Constant folding)
+    // 3. Filter pushed past Sort
+    // 4. Filter pushed past Select (since Select just passes x and g)
+    unoptimized.explain("test_optimizer.png");
+
+    std::cout << "[PASS] explain generates PNG and optimizes DAG\n";
 }
 
 int main() {

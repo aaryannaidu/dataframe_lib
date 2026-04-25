@@ -7,7 +7,8 @@
 namespace dataframelib {
 
 // Returns an optimized DAG rooted at `root`.
-// Currently a pass-through; full optimization rules are added in step 8.
+// Applies projection pushdown (top-down), then runs predicate pushdown,
+// limit pushdown, constant folding, and expression simplification to a fixed point.
 std::shared_ptr<DAGNode> optimize(const std::shared_ptr<DAGNode>& root);
 
 }

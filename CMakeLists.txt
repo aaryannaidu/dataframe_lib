@@ -34,3 +34,6 @@ target_link_libraries(test_eager PRIVATE dataframelib)
 
 add_executable(test_lazy tests/test_lazy.cpp)
 target_link_libraries(test_lazy PRIVATE dataframelib)
+
+add_executable(test_optimizer tests/test_optimizer.cpp)
+target_link_libraries(test_optimizer PRIVATE dataframelib)

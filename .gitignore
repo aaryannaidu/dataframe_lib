@@ -8,3 +8,7 @@ build/
 
 # OS specific files
 .DS_Store
+# files generated while running tests
+plan.dot
+test_explain.png
+
