@@ -207,6 +207,44 @@ std::shared_ptr<DAGNode> apply_rules(const std::shared_ptr<DAGNode>& node, bool&
             auto n = static_cast<const SelectNode*>(node.get());
             bool local_changed = false;
             auto opt_exprs = optimize_exprs(n->exprs, changed, local_changed);
+
+            // Check if this SELECT is pure column references.
+            bool outer_pure = std::all_of(opt_exprs.begin(), opt_exprs.end(),
+                [](const Expr& e) { return e.type() == ExprType::COL; });
+
+            if (outer_pure) {
+                // Collect the column names this SELECT projects.
+                std::unordered_set<std::string> outer_names;
+                for (const auto& e : opt_exprs)
+                    outer_names.insert(static_cast<const ColNode*>(e.node().get())->name);
+
+                // Look through column-preserving nodes (SORT, FILTER) for an
+                // inner SELECT.  SORT and FILTER never add or remove columns,
+                // so if an inner SELECT already projects exactly the same set
+                // (or a superset), the outer SELECT is redundant.
+                auto look = in;
+                while (look && (look->type() == NodeType::SORT ||
+                                look->type() == NodeType::FILTER)) {
+                    look = look->input();
+                }
+                if (look && look->type() == NodeType::SELECT) {
+                    auto inner_sel = static_cast<const SelectNode*>(look.get());
+                    std::unordered_set<std::string> inner_names;
+                    for (const auto& e : inner_sel->exprs) {
+                        if (e.type() == ExprType::COL)
+                            inner_names.insert(static_cast<const ColNode*>(e.node().get())->name);
+                        else if (e.type() == ExprType::ALIAS)
+                            inner_names.insert(static_cast<const AliasNode*>(e.node().get())->name);
+                    }
+                    bool all_covered = std::all_of(outer_names.begin(), outer_names.end(),
+                        [&](const std::string& name) { return inner_names.count(name) > 0; });
+                    if (all_covered) {
+                        changed = true;
+                        return in;  // Drop the redundant outer SELECT entirely.
+                    }
+                }
+            }
+
             if (local_changed || in != n->input())
                 return std::make_shared<SelectNode>(in, opt_exprs);
             return node;

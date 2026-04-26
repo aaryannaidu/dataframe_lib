@@ -11,5 +11,5 @@ build/
 # files generated while running tests
 plan.dot
 test_explain.png
-
+test_optimizer.png
 *A4-Tester/

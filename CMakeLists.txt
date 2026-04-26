@@ -23,8 +23,7 @@ target_include_directories(dataframelib PUBLIC include)
 target_link_libraries(dataframelib PUBLIC Arrow::arrow_shared ArrowCompute::arrow_compute_shared Parquet::parquet_shared)
 
 # ── Test executables ───────────────────────────────────────────────────────
-add_executable(dataframe_test main.cpp)
-target_link_libraries(dataframe_test PRIVATE dataframelib)
+
 
 add_executable(dfl_test_expressions tests/test_expressions.cpp)
 target_link_libraries(dfl_test_expressions PRIVATE dataframelib)
