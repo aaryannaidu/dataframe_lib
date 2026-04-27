@@ -1,6 +1,6 @@
 # DataFrameLib
 
-A C++17 DataFrame library built on [Apache Arrow](https://arrow.apache.org/). It offers both an eager API (operations execute immediately) and a lazy API (operations build a query plan that is optimized and executed only on `.collect()`).
+A C++17 DataFrame library built on [Apache Arrow](https://arrow.apache.org/). Apache Arrow is used only for I/O (CSV/Parquet read/write) and data storage — all computation is implemented from scratch in pure C++. It offers both an eager API (operations execute immediately) and a lazy API (operations build a query plan that is optimized and executed only on `.collect()`).
 
 ---
 
@@ -8,8 +8,7 @@ A C++17 DataFrame library built on [Apache Arrow](https://arrow.apache.org/). It
 
 | Library | Install |
 |---|---|
-| Apache Arrow + Compute | `brew install apache-arrow` |
-| Parquet (bundled with Arrow) | included above |
+| Apache Arrow (core + Parquet) | `brew install apache-arrow` |
 | Graphviz (for `explain()`) | `brew install graphviz` |
 | CMake ≥ 3.14 | `brew install cmake` |
 
@@ -27,6 +26,14 @@ This produces:
 - `libdataframelib.a` — the library
 - `dataframe_test` — visualization demo (`main.cpp`)
 - `dfl_test_expressions`, `dfl_test_eager`, `dfl_test_lazy`, `dfl_test_optimizer` — unit tests
+
+After building, run the demo to generate DAG visualization PNGs in the `build/` directory:
+
+```bash
+./dataframe_test
+# produces: build/test_optimizer.png  (constant folding + predicate pushdown example)
+#           build/test_explain.png    (join + group-by pipeline example)
+```
 
 ---
 
@@ -122,14 +129,17 @@ include/
   DAGNode.hpp                   query plan node types
   QueryOptimizer.hpp            optimizer interface
   IO.hpp                        internal I/O helpers
+  Compute.hpp                   manual compute layer (NativeValue + all operation declarations)
 
 src/
-  Expression.cpp                expression evaluator (Arrow compute kernels)
+  Compute.cpp                   all compute implementations (arithmetic, comparison, aggregation,
+                                string functions, sort, filter — no Arrow compute used)
+  Expression.cpp                expression AST walker; delegates evaluation to Compute
   EagerDataFrame.cpp            eager operations (filter, join, group-by …)
   LazyDataFrame.cpp             lazy plan builder + DAG executor
   DAGNode.cpp                   node ID management
   QueryOptimizer.cpp            query optimizer passes
-  IO.cpp                        CSV / Parquet read & write
+  IO.cpp                        CSV / Parquet read & write (only Arrow usage outside of data types)
 
 tests/
   test_expressions.cpp
@@ -153,7 +163,10 @@ The lazy API automatically applies the following optimizations before execution:
 | **Constant folding** | Evaluates literal arithmetic at plan time (`2 * 3` → `6`) |
 | **Expression simplification** | Rewrites `x + 0` → `x`, `x * 1` → `x`, `x * 0` → `0`, `x - x` → `0` |
 
-Call `.explain("plan.png")` on any `LazyDataFrame` to produce a side-by-side PNG of the unoptimized and optimized query plans.
+Call `.explain("plan.png")` on any `LazyDataFrame` to produce a side-by-side PNG of the unoptimized and optimized query plans. Example outputs from `./dataframe_test` (generated in `build/`):
+
+- `test_optimizer.png` — shows constant folding + predicate pushdown transforming `FILTER(SORT(SELECT(SCAN)))` into `SORT(FILTER(SCAN))`
+- `test_explain.png` — shows a join + group-by pipeline with projection and filter pushdown into the join branches
 
 ---
 
