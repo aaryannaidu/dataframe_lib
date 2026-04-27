@@ -1,6 +1,5 @@
 #include "EagerDataFrame.hpp"
-
-#include <arrow/compute/api.h>
+#include "Compute.hpp"
 
 #include <set>
 #include <stdexcept>
@@ -29,16 +28,10 @@ std::shared_ptr<arrow::ChunkedArray> to_chunked(const arrow::Datum& d,
     throw std::runtime_error(ctx + ": expression did not produce an array");
 }
 
-// Get the scalar value at a global row index from a ChunkedArray.
+// Thin wrapper: delegate to compute::scalar_at so the rest of this file can use it.
 std::shared_ptr<arrow::Scalar> scalar_at(
     const std::shared_ptr<arrow::ChunkedArray>& col, int64_t row) {
-    int64_t offset = row;
-    for (const auto& chunk : col->chunks()) {
-        if (offset < chunk->length())
-            return chunk->GetScalar(offset).ValueOrDie();
-        offset -= chunk->length();
-    }
-    throw std::runtime_error("scalar_at: row index out of bounds");
+    return compute::scalar_at(col, row);
 }
 
 // Build an Arrow Array from a vector of scalars (null scalars → null entries).
@@ -164,25 +157,21 @@ EagerDataFrame EagerDataFrame::sort(const std::vector<std::string>& columns,
                                      const std::vector<bool>& ascending) const {
     if (columns.size() != ascending.size())
         throw std::runtime_error("sort: columns and ascending vectors must have the same size");
-    std::vector<arrow::compute::SortKey> keys;
-    keys.reserve(columns.size());
-    for (size_t i = 0; i < columns.size(); ++i)
-        keys.emplace_back(columns[i],
-            ascending[i] ? arrow::compute::SortOrder::Ascending
-                         : arrow::compute::SortOrder::Descending);
-    auto indices = arrow::compute::SortIndices(arrow::Datum(table_),
-                                                arrow::compute::SortOptions(keys));
-    if (!indices.ok()) throw std::runtime_error("sort: " + indices.status().message());
-    auto taken = arrow::compute::Take(arrow::Datum(table_), arrow::Datum(indices.ValueOrDie()));
-    if (!taken.ok()) throw std::runtime_error("sort: " + taken.status().message());
-    return EagerDataFrame(taken.ValueOrDie().table());
+    auto indices = compute::sort_indices(table_, columns, ascending);
+    return EagerDataFrame(compute::take_rows(table_, indices));
 }
 
 EagerDataFrame EagerDataFrame::filter(const Expr& predicate) const {
-    auto mask   = evaluate(predicate, table_);
-    auto result = arrow::compute::CallFunction("filter", {arrow::Datum(table_), mask});
-    if (!result.ok()) throw std::runtime_error("filter: " + result.status().message());
-    return EagerDataFrame(result.ValueOrDie().table());
+    auto mask = evaluate(predicate, table_);
+    // Scalar predicate (e.g. filter(lit(true))): keep all or none.
+    if (mask.is_scalar()) {
+        auto v = compute::to_native(mask.scalar());
+        if (std::holds_alternative<bool>(v) && std::get<bool>(v))
+            return *this;
+        return EagerDataFrame(table_->Slice(0, 0));
+    }
+    auto indices = compute::filter_indices(mask);
+    return EagerDataFrame(compute::take_rows(table_, indices));
 }
 
 

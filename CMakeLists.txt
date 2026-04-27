@@ -5,11 +5,11 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Arrow REQUIRED)
-find_package(ArrowCompute REQUIRED)
 find_package(Parquet REQUIRED)
 
 # ── Library sources ────────────────────────────────────────────────────────
 set(LIB_SOURCES
+    src/Compute.cpp
     src/Expression.cpp
     src/IO.cpp
     src/EagerDataFrame.cpp
@@ -20,7 +20,7 @@ set(LIB_SOURCES
 
 add_library(dataframelib ${LIB_SOURCES})
 target_include_directories(dataframelib PUBLIC include)
-target_link_libraries(dataframelib PUBLIC Arrow::arrow_shared ArrowCompute::arrow_compute_shared Parquet::parquet_shared)
+target_link_libraries(dataframelib PUBLIC Arrow::arrow_shared Parquet::parquet_shared)
 
 # ── Test executables ───────────────────────────────────────────────────────
 

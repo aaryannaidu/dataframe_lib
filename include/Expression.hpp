@@ -5,7 +5,6 @@
 #include <variant>
 
 #include <arrow/api.h>
-#include <arrow/compute/api.h>
 
 namespace dataframelib {
 

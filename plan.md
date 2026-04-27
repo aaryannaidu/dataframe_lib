@@ -318,4 +318,222 @@ Takes a DAG root node → returns an optimized DAG root node. Implement as a ser
 
 ---
 
+## Step 10: Remove Apache Arrow Compute — Replace with Manual Implementations
+
+**Constraint:** Apache Arrow may only be used for I/O (CSV/Parquet read/write). All computation must be implemented in pure C++.
+
+All hand-rolled compute logic lives in two new dedicated files so it is easy to review and audit. `Expression.cpp` and `EagerDataFrame.cpp` simply `#include "Compute.hpp"` and delegate to it.
+
+---
+
+### 10a. New files
+
+```
+include/
+  Compute.hpp      ← new: NativeValue type + all compute declarations
+src/
+  Compute.cpp      ← new: all compute implementations
+```
+
+Updated project structure:
+
+```
+include/
+  dataframelib/dataframelib.h
+  Expression.hpp
+  EagerDataFrame.hpp
+  LazyDataFrame.hpp
+  DAGNode.hpp
+  QueryOptimizer.hpp
+  IO.hpp
+  Compute.hpp          ← NEW
+
+src/
+  Expression.cpp       ← simplified: AST walker only, delegates to Compute
+  EagerDataFrame.cpp   ← simplified: delegates sort/filter helpers to Compute
+  LazyDataFrame.cpp
+  DAGNode.cpp
+  QueryOptimizer.cpp
+  IO.cpp
+  Compute.cpp          ← NEW
+```
+
+Add `src/Compute.cpp` to `LIB_SOURCES` in `CMakeLists.txt`.
+
+---
+
+### 10b. What currently uses Arrow Compute (must be replaced)
+
+| File | Arrow Compute usage |
+|---|---|
+| `Expression.cpp` | `arrow::compute::Initialize()`, `arrow::compute::CallFunction()`, `arrow::compute::Cast()`, `arrow::compute::CountOptions`, `arrow::compute::MatchSubstringOptions` |
+| `EagerDataFrame.cpp` | `arrow::compute::SortIndices()`, `arrow::compute::Take()`, `arrow::compute::SortKey/SortOrder/SortOptions`, `arrow::compute::CallFunction("filter", ...)` |
+
+**What is OK to keep (pure Arrow data structures, not compute):**
+- `arrow::Table`, `arrow::Array`, `arrow::ChunkedArray`, `arrow::Scalar` and subclasses
+- `arrow::Table::Make`, `table->Slice()`, `table->SelectColumns()`, `table->GetColumnByName()`
+- `arrow::field()`, `arrow::schema()`, `arrow::MakeScalar()`
+- `arrow::MakeBuilder()` and `arrow::ArrayBuilder` subclasses — array-building API, not compute
+- `chunk->GetScalar(offset)` — scalar extraction on core arrays
+- All I/O: Arrow CSV/Parquet reader/writer in `IO.cpp`
+
+---
+
+### 10c. Compute.hpp — public interface
+
+```cpp
+#pragma once
+#include <arrow/api.h>
+#include <variant>
+#include <string>
+#include "Expression.hpp"   // for BinOp, UnaryOp, AggType, StrFunc enums
+
+namespace dataframelib {
+
+// Single cell value; monostate = null
+using NativeValue = std::variant<std::monostate, int64_t, double, std::string, bool>;
+
+namespace compute {
+
+// ── Scalar ↔ NativeValue conversion ──────────────────────────────────────
+NativeValue to_native(const std::shared_ptr<arrow::Scalar>& s);
+std::shared_ptr<arrow::Scalar> from_native(const NativeValue& v,
+                                            const std::shared_ptr<arrow::DataType>& type);
+
+// ── Column-level operations (return ChunkedArray) ────────────────────────
+// Apply binary op element-wise between two columns (or column + scalar broadcast)
+std::shared_ptr<arrow::ChunkedArray>
+apply_binop(const std::shared_ptr<arrow::ChunkedArray>& left,
+            const std::shared_ptr<arrow::ChunkedArray>& right,
+            BinOp op);
+
+// Apply unary op element-wise
+std::shared_ptr<arrow::ChunkedArray>
+apply_unary(const std::shared_ptr<arrow::ChunkedArray>& col, UnaryOp op);
+
+// Aggregate a column to a single Scalar
+std::shared_ptr<arrow::Scalar>
+aggregate(const std::shared_ptr<arrow::ChunkedArray>& col, AggType agg);
+
+// Apply string function element-wise
+std::shared_ptr<arrow::ChunkedArray>
+apply_strfunc(const std::shared_ptr<arrow::ChunkedArray>& col,
+              StrFunc func, const std::string& arg);
+
+// ── Table-level helpers ───────────────────────────────────────────────────
+// Rebuild table keeping only the rows at `indices` (all >= 0).
+std::shared_ptr<arrow::Table>
+take_rows(const std::shared_ptr<arrow::Table>& table,
+          const std::vector<int64_t>& indices);
+
+// Return sorted row indices for the given sort keys.
+std::vector<int64_t>
+sort_indices(const std::shared_ptr<arrow::Table>& table,
+             const std::vector<std::string>& columns,
+             const std::vector<bool>& ascending);
+
+// Return row indices where boolean ChunkedArray is true.
+std::vector<int64_t>
+filter_indices(const std::shared_ptr<arrow::ChunkedArray>& mask);
+
+} // namespace compute
+} // namespace dataframelib
+```
+
+---
+
+### 10d. Compute.cpp — implementations
+
+**`to_native`:**
+- Check `!s->is_valid` → return `std::monostate`
+- `type->id()` dispatch: Int8/16/32/64 → cast to `int64_t`; Float/Double → `double`; String/LargeString → `std::string`; Bool → `bool`
+
+**`from_native`:**
+- `std::monostate` → `arrow::MakeNullScalar(type)`
+- `int64_t` → `arrow::MakeScalar<int64_t>` (or cast to match target type Int32, etc.)
+- `double`/`string`/`bool` similarly
+
+**`apply_binop`:**
+- Iterate rows via `scalar_at` (moved here from EagerDataFrame)
+- Call `to_native` on each pair, apply operator on variants, call `from_native`, append to builder
+- Type promotion: if one side is double and other is int64, widen int64 → double before operating
+- Arithmetic errors (divide by zero, modulo) → propagate null
+
+**`apply_unary`:**
+- Iterate rows, `to_native`, apply op:
+  - `ABS` → `std::abs` on int64/double
+  - `NEGATE` → negate int64/double
+  - `NOT` → invert bool
+  - `IS_NULL` → return `bool(std::holds_alternative<std::monostate>(v))`
+  - `IS_NOT_NULL` → inverse
+
+**`aggregate`:**
+- Iterate column rows → `to_native`
+- `SUM`: accumulate numeric values
+- `MEAN`: sum / count-of-non-null
+- `COUNT`: count non-monostate rows, return int64 scalar
+- `MIN`/`MAX`: track running min/max with `<`/`>`
+
+**`apply_strfunc`:**
+- Get `std::string` value via `to_native`
+- `LENGTH` → `(int64_t)s.size()`
+- `TO_LOWER`/`TO_UPPER` → `std::transform` with `tolower`/`toupper`
+- `CONTAINS` → `s.find(arg) != std::string::npos` → bool
+- `STARTS_WITH` → `s.size() >= arg.size() && s.substr(0, arg.size()) == arg` → bool
+- `ENDS_WITH` → check last `arg.size()` chars → bool
+
+**`take_rows`:**
+- For each column: iterate `indices`, call `scalar_at`, append to builder, finish array
+- Build new table from rebuilt arrays
+
+**`sort_indices`:**
+- Build `indices = {0, 1, ..., n-1}`
+- `std::stable_sort` with comparator that iterates sort keys in order, calls `to_native`, compares
+- Return sorted indices
+
+**`filter_indices`:**
+- Iterate mask column, collect indices where value is `bool(true)`
+
+---
+
+### 10e. Simplify Expression.cpp
+
+- Remove `#include <arrow/compute/api.h>` and `#include <arrow/compute/initialize.h>`
+- Remove `ArrowComputeInit` struct and `arrow_compute_init_` singleton
+- Remove `cast_to()` and `call()` helper functions
+- `eval_binop` → call `compute::apply_binop(left_chunked, right_chunked, op)`
+- `eval_unary` → call `compute::apply_unary(col_chunked, op)`
+- `eval_agg` → call `compute::aggregate(col_chunked, agg_type)`
+- `eval_strfunc` → call `compute::apply_strfunc(col_chunked, func, arg)`
+- All `eval_*` functions return `arrow::Datum` (no change to interface)
+
+---
+
+### 10f. Simplify EagerDataFrame.cpp
+
+- Remove `#include <arrow/compute/api.h>`
+- `sort()`: call `compute::sort_indices(table_, columns, ascending)` → then `compute::take_rows(table_, indices)`
+- `filter()`: evaluate predicate to get bool ChunkedArray → call `compute::filter_indices(mask)` → then `compute::take_rows(table_, indices)`
+- Move `scalar_at()` helper to `Compute.cpp` (it's needed there anyway); keep a local one or expose it from `Compute.hpp`
+
+---
+
+### 10g. CMakeLists.txt update
+
+- Add `src/Compute.cpp` to `LIB_SOURCES`
+- Remove `find_package(ArrowCompute REQUIRED)` and `ArrowCompute::arrow_compute_shared` from `target_link_libraries`
+
+---
+
+### 10h. Test after each change
+
+Build and run all four test binaries after each replacement:
+```bash
+cd build && cmake --build . --parallel
+./dfl_test_expressions && ./dfl_test_eager && ./dfl_test_lazy && ./dfl_test_optimizer
+```
+
+All 79 autograder tests must continue to pass.
+
+---
 
